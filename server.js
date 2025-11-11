@@ -124,8 +124,13 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'todo-list.html'));
 });
 
-// Start server
-app.listen(PORT, () => {
-    console.log(`Server is running on http://localhost:${PORT}`);
-    console.log(`Open http://localhost:${PORT}/todo-list.html in your browser`);
-});
+// Export for Vercel serverless
+module.exports = app;
+
+// Start server only when running locally (not on Vercel)
+if (require.main === module) {
+    app.listen(PORT, () => {
+        console.log(`Server is running on http://localhost:${PORT}`);
+        console.log(`Open http://localhost:${PORT}/todo-list.html in your browser`);
+    });
+}
