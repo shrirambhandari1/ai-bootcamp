@@ -116,6 +116,11 @@ app.delete('/api/tasks/:id', (req, res) => {
     }
 });
 
+// Root route - serve the todo list app
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'todo-list.html'));
+});
+
 // Start server
 app.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
