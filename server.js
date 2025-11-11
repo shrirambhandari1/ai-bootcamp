@@ -1,117 +1,120 @@
 const express = require('express');
 const cors = require('cors');
-const fs = require('fs');
 const path = require('path');
+require('dotenv').config();
+const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
 const PORT = 3000;
-const TASKS_FILE = path.join(__dirname, 'tasks.json');
+
+// Initialize Supabase client
+const supabase = createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_ANON_KEY
+);
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.static(__dirname));
 
-// Helper function to read tasks from file
-function readTasks() {
-    try {
-        if (!fs.existsSync(TASKS_FILE)) {
-            fs.writeFileSync(TASKS_FILE, JSON.stringify([]));
-            return [];
-        }
-        const data = fs.readFileSync(TASKS_FILE, 'utf8');
-        return JSON.parse(data);
-    } catch (error) {
-        console.error('Error reading tasks:', error);
-        return [];
-    }
-}
-
-// Helper function to write tasks to file
-function writeTasks(tasks) {
-    try {
-        fs.writeFileSync(TASKS_FILE, JSON.stringify(tasks, null, 2));
-        return true;
-    } catch (error) {
-        console.error('Error writing tasks:', error);
-        return false;
-    }
-}
 
 // GET all tasks
-app.get('/api/tasks', (req, res) => {
-    const tasks = readTasks();
-    res.json(tasks);
+app.get('/api/tasks', async (req, res) => {
+    try {
+        const { data, error } = await supabase
+            .from('tasks')
+            .select('*')
+            .order('created_at', { ascending: true });
+
+        if (error) throw error;
+        res.json(data || []);
+    } catch (error) {
+        console.error('Error fetching tasks:', error);
+        res.status(500).json({ error: 'Failed to fetch tasks' });
+    }
 });
 
 // POST a new task
-app.post('/api/tasks', (req, res) => {
+app.post('/api/tasks', async (req, res) => {
     const { text } = req.body;
 
     if (!text || text.trim() === '') {
         return res.status(400).json({ error: 'Task text is required' });
     }
 
-    const tasks = readTasks();
-    const newTask = {
-        id: Date.now(),
-        text: text.trim(),
-        completed: false
-    };
+    try {
+        const { data, error } = await supabase
+            .from('tasks')
+            .insert([
+                { text: text.trim(), completed: false }
+            ])
+            .select()
+            .single();
 
-    tasks.push(newTask);
-
-    if (writeTasks(tasks)) {
-        res.status(201).json(newTask);
-    } else {
+        if (error) throw error;
+        res.status(201).json(data);
+    } catch (error) {
+        console.error('Error creating task:', error);
         res.status(500).json({ error: 'Failed to save task' });
     }
 });
 
 // PUT update a task
-app.put('/api/tasks/:id', (req, res) => {
+app.put('/api/tasks/:id', async (req, res) => {
     const taskId = parseInt(req.params.id);
     const { text, completed } = req.body;
 
-    const tasks = readTasks();
-    const taskIndex = tasks.findIndex(t => t.id === taskId);
-
-    if (taskIndex === -1) {
-        return res.status(404).json({ error: 'Task not found' });
+    if (text !== undefined && text.trim() === '') {
+        return res.status(400).json({ error: 'Task text cannot be empty' });
     }
 
-    if (text !== undefined) {
-        if (text.trim() === '') {
-            return res.status(400).json({ error: 'Task text cannot be empty' });
+    try {
+        const updateData = {};
+        if (text !== undefined) updateData.text = text.trim();
+        if (completed !== undefined) updateData.completed = completed;
+
+        const { data, error } = await supabase
+            .from('tasks')
+            .update(updateData)
+            .eq('id', taskId)
+            .select()
+            .single();
+
+        if (error) {
+            if (error.code === 'PGRST116') {
+                return res.status(404).json({ error: 'Task not found' });
+            }
+            throw error;
         }
-        tasks[taskIndex].text = text.trim();
-    }
 
-    if (completed !== undefined) {
-        tasks[taskIndex].completed = completed;
-    }
-
-    if (writeTasks(tasks)) {
-        res.json(tasks[taskIndex]);
-    } else {
+        res.json(data);
+    } catch (error) {
+        console.error('Error updating task:', error);
         res.status(500).json({ error: 'Failed to update task' });
     }
 });
 
 // DELETE a task
-app.delete('/api/tasks/:id', (req, res) => {
+app.delete('/api/tasks/:id', async (req, res) => {
     const taskId = parseInt(req.params.id);
 
-    const tasks = readTasks();
-    const filteredTasks = tasks.filter(t => t.id !== taskId);
+    try {
+        const { data, error } = await supabase
+            .from('tasks')
+            .delete()
+            .eq('id', taskId)
+            .select();
 
-    if (tasks.length === filteredTasks.length) {
-        return res.status(404).json({ error: 'Task not found' });
-    }
+        if (error) throw error;
 
-    if (writeTasks(filteredTasks)) {
+        if (!data || data.length === 0) {
+            return res.status(404).json({ error: 'Task not found' });
+        }
+
         res.json({ message: 'Task deleted successfully' });
-    } else {
+    } catch (error) {
+        console.error('Error deleting task:', error);
         res.status(500).json({ error: 'Failed to delete task' });
     }
 });
